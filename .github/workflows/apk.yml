@@ -1,0 +1,129 @@
+# Coexist build of Nightmare 1.6.128, with Local Dream's raw HTTP API re-exposed.
+#
+# Two things this build adds on top of upstream:
+#   1. applicationId -> com.abrah.nightmare.api, so it installs ALONGSIDE the
+#      official Nightmare (coexistence is by applicationId, not by signature).
+#   2. BackendProcess passes --listen_all, so the forked backend serves Local
+#      Dream's raw API (/generate, /upscale, /tokenize, /health) on 0.0.0.0:8189
+#      for clients like Local-Dream-WebUI.
+# Upstream's own flow API (Settings -> Advanced -> API, port 8820, token) is
+# unchanged and present.
+#
+# Native code is reused: the official 1.6.128 APK ships the forked backend and the
+# app's prebuilt libnmjs.so / libnmqnn.so, and those native sources are identical
+# in 1.6.128. They are staged into jniLibs and externalNativeBuild is disabled in
+# app/build.gradle.kts, so no NDK / QuickJS / QNN headers / QAIRT SDK / Foxlet
+# are needed.
+name: apk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK packages
+        run: |
+          set -e
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "SDK=$SDK"
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMGR" ]; then SDKMGR="$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager | tail -1)"; fi
+          echo "sdkmanager=$SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Signing keystore (stable across builds)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          KS="../.secrets/nightmare-keystore"
+          mkdir -p "$KS"
+          if gh release download coexist-keystore -p coexist-keystore.b64 -D /tmp --clobber 2>/dev/null; then
+            echo "reusing the published keystore"
+            base64 -d /tmp/coexist-keystore.b64 > "$KS/coexist.jks"
+          else
+            echo "generating a new keystore"
+            keytool -genkeypair -v -keystore "$KS/coexist.jks" -storetype JKS -alias coexist \
+              -storepass coexistpass -keypass coexistpass -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Nightmare API, OU=coexist, O=personal, C=US"
+            base64 -w0 "$KS/coexist.jks" > /tmp/coexist-keystore.b64
+            gh release create coexist-keystore /tmp/coexist-keystore.b64 \
+              --title "Coexist signing keystore" \
+              --notes "Throwaway key for the personal coexist build (com.abrah.nightmare.api). Not a secret of value." \
+              || gh release upload coexist-keystore /tmp/coexist-keystore.b64 --clobber
+          fi
+          cat > "$KS/keystore.properties" <<EOF
+          storeFile=coexist.jks
+          storePassword=coexistpass
+          keyAlias=coexist
+          keyPassword=coexistpass
+          EOF
+          ls -la "$KS"
+
+      - name: Stage the official 1.6.128 backend + QNN runtime into jniLibs/assets
+        run: |
+          set -e
+          URL="https://github.com/AbrahamPaulJ/nightmare-mobile/releases/download/v1.6.128/nightmare-1.6.128.apk"
+          curl -L --retry 3 --retry-delay 5 -o nm.apk "$URL"
+          ls -l nm.apk
+          unzip -o nm.apk 'lib/arm64-v8a/*' 'assets/*' -d _apk
+          mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/assets
+          cp _apk/lib/arm64-v8a/*.so app/src/main/jniLibs/arm64-v8a/
+          cp -r _apk/assets/qnnlibs app/src/main/assets/
+          [ -d _apk/assets/ditlibs ] && cp -r _apk/assets/ditlibs app/src/main/assets/ || true
+          echo "--- staged jniLibs ---"
+          ls -la app/src/main/jniLibs/arm64-v8a/
+          echo "--- staged assets ---"
+          ls app/src/main/assets/
+
+      - name: Build coexist APK (assembleDev, release key, no R8)
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDev --no-daemon --stacktrace
+
+      - name: Collect + verify signature
+        run: |
+          set -e
+          mkdir -p out
+          cp app/build/outputs/apk/dev/*.apk out/ || true
+          ls -la out/
+          APK="$(ls out/*.apk | head -1)"
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)"
+          "$APKSIGNER" verify --print-certs "$APK" | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightmare-api-coexist
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APK as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release view coexist-apk >/dev/null 2>&1 \
+            && gh release upload coexist-apk out/*.apk --clobber \
+            || gh release create coexist-apk out/*.apk \
+                 --title "Nightmare API coexist 1.6.128" \
+                 --notes "Coexists with official Nightmare (applicationId com.abrah.nightmare.api). Upstream flow API on 8820; Local Dream raw API on 8189 via --listen_all."
+          gh release view coexist-apk --json assets -q '.assets[].name'
