@@ -550,6 +550,11 @@ object BackendProcess {
                     // backstop, but nothing routine depends on it any more.
                     add("--lib_dir"); add(runtime.absolutePath)
                     add("--port"); add(port.toString())
+                    // RESTORED (coexist build): Local Dream's raw HTTP API on the LAN.
+                    // The forked backend already supports --listen_all; nothing in this
+                    // app passed it. /generate, /upscale, /tokenize and /health then
+                    // serve on 0.0.0.0:PORT (8189) alongside the app's own flow API on 8820.
+                    add("--listen_all")
                     // ⚠⚠ Not a tuning knob. `--lowram` loads and releases each
                     // stage instead of holding the pipeline resident, and every
                     // SDXL checkpoint needs it: a ~3× UNet at 1024² does not fit
