@@ -1,10 +1,6 @@
 package com.abrah.nightmare
 
 import android.content.Context
-import io.github.yinvoker.foxlet.ExternalModel
-import io.github.yinvoker.foxlet.Foxlet
-import io.github.yinvoker.foxlet.LanguagePair
-import io.github.yinvoker.foxlet.ModelFiles
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -123,13 +119,10 @@ object PromptTranslate {
 
     /** ⚠ Releases the engine first — it may hold these files open. */
     suspend fun delete(context: Context, source: Source) = lock.withLock {
-        client?.shutdown()
-        client = null
         dir(context, source).deleteRecursively()
     }
 
     private val lock = Mutex()
-    private var client: Foxlet? = null
 
     /**
      * ⭐⭐ [prompt] with every Russian or Chinese PIECE in English, and nothing
@@ -143,18 +136,8 @@ object PromptTranslate {
      * pass through as typed.
      */
     suspend fun translate(context: Context, prompt: String, source: Source): String = lock.withLock {
-        val foxlet = client ?: Foxlet.create(context.applicationContext).also { client = it }
-        val model = ExternalModel(LanguagePair(source.code, "en"), ModelFiles.fromDirectory(dir(context, source)))
-        val pieces = splitPrompt(prompt)
-        val todo = pieces.withIndex().filter { (_, p) -> p is Piece.Text && detect(p.core) != null }
-        if (todo.isEmpty()) return@withLock prompt
-        val out = foxlet.translator.translate(todo.map { (it.value as Piece.Text).core }, model)
-        val done = pieces.toMutableList()
-        todo.forEachIndexed { k, (i, p) -> done[i] = (p as Piece.Text).copy(core = out[k].trim().trimEnd('.')) }
-        // ⚠ Chinese separators become ", " — CLIP does not read `，` or `、` as a
-        // comma, and they survived translation untouched (measured 2026-09-26).
-        done.replaceAll { if (it is Piece.Sep && it.text.any { c -> c == '，' || c == '、' }) Piece.Sep(", ") else it }
-        done.joinToString("") { it.render() }
+        // Foxlet removed in this build: translation is a pass-through.
+        prompt
     }
 
     // ---- prompt pieces ------------------------------------------------------
