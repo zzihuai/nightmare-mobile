@@ -36,7 +36,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.abrah.nightmare"
+        applicationId = "com.abrah.nightmare.api"
         // 31 to match DreamUI. The backend and QNN runtime set the real floor;
         // there is no reason to support anything the NPU path cannot run on.
         minSdk = 31
@@ -65,9 +65,11 @@ android {
         // and does not compile without one. â­ STATIC rather than shared so the
         // STL is linked into libnmqnn.so and no `libc++_shared.so` has to be
         // packaged -- libnmjs.so is C and links none of it either way.
-        externalNativeBuild {
-            cmake { arguments += "-DANDROID_STL=c++_static" }
-        }
+        // DISABLED (coexist build): libnmjs.so / libnmqnn.so are staged prebuilt
+        // from the official APK into jniLibs, so no NDK/QuickJS/QNN headers are needed.
+        // externalNativeBuild {
+        //     cmake { arguments += "-DANDROID_STL=c++_static" }
+        // }
     }
 
     // âš  Our own C, unlike the backend: libstable_diffusion_core.so is BUILT
@@ -75,12 +77,13 @@ android {
     // executable, and its tree is CC BY-NC and uncommittable). libnmjs.so is
     // ours plus MIT QuickJS, so it is a normal Gradle native build -- and that
     // means it cannot silently go stale the way a staged binary can.
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+    // DISABLED (coexist build): no native build; the official APK's .so are staged.
+    // externalNativeBuild {
+    //     cmake {
+    //         path = file("src/main/cpp/CMakeLists.txt")
+    //         version = "3.22.1"
+    //     }
+    // }
 
     signingConfigs {
         if (keystoreProps.isNotEmpty()) {
@@ -198,7 +201,8 @@ dependencies {
     // into app/libs by tools/build_foxlet.sh and gitignored like jniLibs
     // (docs/TRANSLATE.md). A local AAR carries no dependency metadata, so its
     // coroutines dependency is declared here.
-    implementation(files("libs/foxlet-release.aar"))
+    // DISABLED (coexist build): Foxlet AAR is not built here; PromptTranslate is a pass-through.
+    // implementation(files("libs/foxlet-release.aar"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
