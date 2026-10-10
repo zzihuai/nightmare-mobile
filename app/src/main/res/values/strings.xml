@@ -10,7 +10,7 @@
       word order can move — several of these read backwards in Russian if the
       value is pinned to the end.
     -->
-    <string name="app_name">Nightmare</string>
+    <string name="app_name">Nightmare API</string>
 
     <!-- Canvas: the top bar and the run bar. -->
     <string name="nav_models">Models</string>
